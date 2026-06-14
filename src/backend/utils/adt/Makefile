@@ -130,6 +130,7 @@ OBJS = \
 	windowfuncs.o \
 	xid.o \
 	xid8funcs.o \
+	xidhorizonfuncs.o \
 	xml.o
 
 # See notes in src/backend/parser/Makefile about the following two rules

@@ -1100,6 +1100,9 @@ CREATE VIEW pg_stat_gssapi AS
     FROM pg_stat_get_activity(NULL) AS S
     WHERE S.client_port IS NOT NULL;
 
+CREATE VIEW pg_xid_horizons AS
+    SELECT * FROM pg_get_xid_horizons();
+
 CREATE VIEW pg_replication_slots AS
     SELECT
             L.slot_name,

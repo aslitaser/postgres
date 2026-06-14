@@ -126,6 +126,7 @@ backend_sources += files(
   'windowfuncs.c',
   'xid.c',
   'xid8funcs.c',
+  'xidhorizonfuncs.c',
   'xml.c',
 )
 
