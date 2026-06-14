@@ -3317,6 +3317,61 @@ acl      | {postgres=arwdDxtm/postgres,foo=r/postgres}
     </tgroup>
    </table>
 
+   <para>
+    The functions shown in <xref linkend="functions-xid-time-map"/>
+    provide approximate mappings between full transaction IDs and the times
+    they were assigned.  They use a sampled in-memory map, so returned values
+    are estimates.
+   </para>
+
+   <table id="functions-xid-time-map">
+    <title>Transaction ID Assignment Time Functions</title>
+    <tgroup cols="1">
+     <thead>
+      <row>
+       <entry role="func_table_entry"><para role="func_signature">
+        Function
+       </para>
+       <para>
+        Description
+       </para></entry>
+      </row>
+     </thead>
+
+     <tbody>
+      <row>
+       <entry role="func_table_entry"><para role="func_signature">
+        <indexterm>
+         <primary>pg_xid_assigned_at</primary>
+        </indexterm>
+        <function>pg_xid_assigned_at</function> ( <type>xid8</type> )
+        <returnvalue>timestamp with time zone</returnvalue>
+       </para>
+       <para>
+        Returns the approximate time at which a full transaction ID was
+        assigned, or <literal>NULL</literal> if the transaction ID is outside
+        the sampled map.
+       </para></entry>
+      </row>
+
+      <row>
+       <entry role="func_table_entry"><para role="func_signature">
+        <indexterm>
+         <primary>pg_xid_at_time</primary>
+        </indexterm>
+        <function>pg_xid_at_time</function> ( <type>timestamp with time zone</type> )
+        <returnvalue>xid8</returnvalue>
+       </para>
+       <para>
+        Returns the approximate full transaction ID assigned at the specified
+        time, or <literal>NULL</literal> if the time is outside the sampled
+        map.
+       </para></entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+
   </sect2>
 
   <sect2 id="functions-info-controldata">

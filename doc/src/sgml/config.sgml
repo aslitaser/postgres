@@ -5473,6 +5473,32 @@ ANY <replaceable class="parameter">num_sync</replaceable> ( <replaceable class="
         rows on the primary for extended periods, as the feedback mechanism is
         based on timestamps.
        </para>
+     </listitem>
+    </varlistentry>
+
+     <varlistentry id="guc-max-standby-feedback-lag" xreflabel="max_standby_feedback_lag">
+      <term><varname>max_standby_feedback_lag</varname> (<type>integer</type>)
+      <indexterm>
+       <primary><varname>max_standby_feedback_lag</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Sets the maximum age of hot standby feedback xmins on the primary.
+        When this parameter is greater than zero, the primary uses its
+        sampled transaction ID assignment-time map to bound, in wall-clock
+        time, how far a standby's feedback can hold back the primary's
+        <literal>xmin</literal>.  The value is specified in milliseconds
+        if no unit is given.  The default value is <literal>0</literal>,
+        which disables the limit.
+       </para>
+       <para>
+        Limiting standby feedback can reduce primary-side table bloat caused
+        by old standby snapshots.  However, once a standby snapshot is older
+        than this bound, it is no longer protected by hot standby feedback,
+        and long-running standby queries may be canceled by recovery
+        conflicts.
+       </para>
       </listitem>
      </varlistentry>
 
