@@ -55,6 +55,7 @@
 #include "access/transam.h"
 #include "access/twophase.h"
 #include "access/xact.h"
+#include "access/xidtimemap.h"
 #include "access/xlog_internal.h"
 #include "access/xlogreader.h"
 #include "access/xlogrecovery.h"
@@ -2718,6 +2719,8 @@ ProcessStandbyHSFeedbackMessage(void)
 	uint32		feedbackEpoch;
 	TransactionId feedbackCatalogXmin;
 	uint32		feedbackCatalogEpoch;
+	FullTransactionId feedbackFullXmin = InvalidFullTransactionId;
+	FullTransactionId feedbackFullCatalogXmin = InvalidFullTransactionId;
 	TimestampTz replyTime;
 
 	/*
@@ -2784,6 +2787,41 @@ ProcessStandbyHSFeedbackMessage(void)
 	if (TransactionIdIsNormal(feedbackCatalogXmin) &&
 		!TransactionIdInRecentPast(feedbackCatalogXmin, feedbackCatalogEpoch))
 		return;
+
+	if (TransactionIdIsNormal(feedbackXmin))
+		feedbackFullXmin = FullTransactionIdFromEpochAndXid(feedbackEpoch,
+															feedbackXmin);
+	if (TransactionIdIsNormal(feedbackCatalogXmin))
+		feedbackFullCatalogXmin =
+			FullTransactionIdFromEpochAndXid(feedbackCatalogEpoch,
+											 feedbackCatalogXmin);
+
+	{
+		FullTransactionId bound = XidTimeMapBoundXid();
+
+		if (FullTransactionIdIsValid(bound))
+		{
+			if (FullTransactionIdIsValid(feedbackFullXmin) &&
+				FullTransactionIdPrecedes(feedbackFullXmin, bound))
+			{
+				elog(LOG, "hot standby feedback xmin clamped from " UINT64_FORMAT " to " UINT64_FORMAT,
+					 U64FromFullTransactionId(feedbackFullXmin),
+					 U64FromFullTransactionId(bound));
+				feedbackFullXmin = bound;
+				feedbackXmin = XidFromFullTransactionId(bound);
+			}
+
+			if (FullTransactionIdIsValid(feedbackFullCatalogXmin) &&
+				FullTransactionIdPrecedes(feedbackFullCatalogXmin, bound))
+			{
+				elog(LOG, "hot standby feedback catalog_xmin clamped from " UINT64_FORMAT " to " UINT64_FORMAT,
+					 U64FromFullTransactionId(feedbackFullCatalogXmin),
+					 U64FromFullTransactionId(bound));
+				feedbackFullCatalogXmin = bound;
+				feedbackCatalogXmin = XidFromFullTransactionId(bound);
+			}
+		}
+	}
 
 	/*
 	 * Set the WalSender's xmin equal to the standby's requested xmin, so that

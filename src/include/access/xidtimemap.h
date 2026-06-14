@@ -25,12 +25,14 @@ typedef struct XidTimeSample
 
 extern PGDLLIMPORT int xid_time_map_samples;
 extern PGDLLIMPORT int xid_time_map_interval;
+extern PGDLLIMPORT int max_standby_feedback_lag;
 
 extern const ShmemCallbacks XidTimeMapShmemCallbacks;
 
 extern Size XidTimeMapShmemSize(void);
 extern void XidTimeMapShmemInit(void);
 extern void XidTimeMapMaybeSample(FullTransactionId xid);
+extern FullTransactionId XidTimeMapBoundXid(void);
 extern void CheckPointXidTimeMap(void);
 extern Datum pg_xid_assigned_at(PG_FUNCTION_ARGS);
 extern Datum pg_xid_at_time(PG_FUNCTION_ARGS);

@@ -25,6 +25,7 @@
 
 int			xid_time_map_samples = 8192;
 int			xid_time_map_interval = 1000;
+int			max_standby_feedback_lag = 0;
 
 #define XID_TIME_MAP_FILE		"pg_xid_time_map"
 #define XID_TIME_MAP_TMP_FILE	"pg_xid_time_map.tmp"
@@ -73,6 +74,7 @@ static bool XidTimeMapSampleDue(TimestampTz last_sample_ts,
 								TimestampTz now);
 static bool XidTimeMapWriteExact(int fd, const void *buffer, Size size,
 								 const char *path);
+static FullTransactionId XidTimeMapXidAtTime(TimestampTz target, bool *found);
 
 const ShmemCallbacks XidTimeMapShmemCallbacks = {
 	.request_fn = XidTimeMapShmemRequest,
@@ -120,14 +122,12 @@ Datum
 pg_xid_at_time(PG_FUNCTION_ARGS)
 {
 	TimestampTz target = PG_GETARG_TIMESTAMPTZ(0);
-	XidTimeSample lower;
-	XidTimeSample upper;
 	FullTransactionId result;
+	bool		found;
 
-	if (!XidTimeMapFindTimeBracket(target, &lower, &upper))
+	result = XidTimeMapXidAtTime(target, &found);
+	if (!found)
 		PG_RETURN_NULL();
-
-	result = XidTimeMapInterpolateXid(lower, upper, target);
 
 	PG_RETURN_FULLTRANSACTIONID(result);
 }
@@ -176,6 +176,25 @@ XidTimeMapMaybeSample(FullTransactionId xid)
 
 	elog(LOG, "xid time map sampled xid " UINT64_FORMAT " count %d head %d",
 		 U64FromFullTransactionId(xid), count, next_head);
+}
+
+FullTransactionId
+XidTimeMapBoundXid(void)
+{
+	TimestampTz bound_time;
+	FullTransactionId bound_xid;
+	bool		found;
+
+	if (max_standby_feedback_lag <= 0)
+		return InvalidFullTransactionId;
+
+	bound_time = TimestampTzPlusMilliseconds(GetCurrentTimestamp(),
+											 -max_standby_feedback_lag);
+	bound_xid = XidTimeMapXidAtTime(bound_time, &found);
+	if (!found)
+		return InvalidFullTransactionId;
+
+	return bound_xid;
 }
 
 void
@@ -615,6 +634,22 @@ XidTimeMapWriteExact(int fd, const void *buffer, Size size, const char *path)
 	}
 
 	return true;
+}
+
+static FullTransactionId
+XidTimeMapXidAtTime(TimestampTz target, bool *found)
+{
+	XidTimeSample lower;
+	XidTimeSample upper;
+
+	if (!XidTimeMapFindTimeBracket(target, &lower, &upper))
+	{
+		*found = false;
+		return InvalidFullTransactionId;
+	}
+
+	*found = true;
+	return XidTimeMapInterpolateXid(lower, upper, target);
 }
 
 static void

@@ -2157,6 +2157,16 @@
   max => 'INT_MAX',
 },
 
+{ name => 'max_standby_feedback_lag', type => 'int', context => 'PGC_SIGHUP', group => 'REPLICATION_PRIMARY',
+  short_desc => 'Sets the maximum age of hot standby feedback xmins on the primary.',
+  long_desc => '0 disables the limit.',
+  flags => 'GUC_UNIT_MS',
+  variable => 'max_standby_feedback_lag',
+  boot_val => '0',
+  min => '0',
+  max => 'INT_MAX',
+},
+
 { name => 'max_standby_streaming_delay', type => 'int', context => 'PGC_SIGHUP', group => 'REPLICATION_STANDBY',
   short_desc => 'Sets the maximum delay before canceling queries when a hot standby server is processing streamed WAL data.',
   long_desc => '-1 means wait forever.',
