@@ -6657,6 +6657,18 @@
   prorettype => 'timestamptz', proargtypes => 'xid',
   prosrc => 'pg_xact_commit_timestamp' },
 
+{ oid => '9501',
+  descr => 'estimate transaction ID assignment timestamp',
+  proname => 'pg_xid_assigned_at', provolatile => 'v', proparallel => 'r',
+  prorettype => 'timestamptz', proargtypes => 'xid8',
+  prosrc => 'pg_xid_assigned_at' },
+
+{ oid => '9502',
+  descr => 'estimate transaction ID assigned at timestamp',
+  proname => 'pg_xid_at_time', provolatile => 'v', proparallel => 'r',
+  prorettype => 'xid8', proargtypes => 'timestamptz',
+  prosrc => 'pg_xid_at_time' },
+
 { oid => '6168',
   descr => 'get commit timestamp and replication origin of a transaction',
   proname => 'pg_xact_commit_timestamp_origin', provolatile => 'v',

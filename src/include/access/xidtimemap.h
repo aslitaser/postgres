@@ -14,6 +14,7 @@
 
 #include "access/transam.h"
 #include "datatype/timestamp.h"
+#include "fmgr.h"
 #include "storage/shmem.h"
 
 typedef struct XidTimeSample
@@ -30,5 +31,7 @@ extern const ShmemCallbacks XidTimeMapShmemCallbacks;
 extern Size XidTimeMapShmemSize(void);
 extern void XidTimeMapShmemInit(void);
 extern void XidTimeMapMaybeSample(FullTransactionId xid);
+extern Datum pg_xid_assigned_at(PG_FUNCTION_ARGS);
+extern Datum pg_xid_at_time(PG_FUNCTION_ARGS);
 
 #endif							/* XIDTIMEMAP_H */
