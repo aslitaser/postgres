@@ -2000,6 +2000,79 @@ GetReplicationHorizons(TransactionId *xmin, TransactionId *catalog_xmin)
 }
 
 /*
+ * GetXidHorizonsSnapshot
+ *
+ * Return a copy of the horizons computed by ComputeXidHorizons(), plus the
+ * backend xids/xmins that are included in the removable horizon calculation.
+ *
+ * The caller owns the palloc'd backends array.  No ProcArrayLock is held when
+ * this function returns.
+ */
+void
+GetXidHorizonsSnapshot(XidHorizonsSnapshot *snapshot)
+{
+	ProcArrayStruct *arrayP = procArray;
+	ComputeXidHorizonsResult horizons;
+	XidHorizonBackend *backends;
+	int			nbackends = 0;
+	TransactionId *other_xids = ProcGlobal->xids;
+
+	ComputeXidHorizons(&horizons);
+
+	snapshot->latest_completed = horizons.latest_completed;
+	snapshot->slot_xmin = horizons.slot_xmin;
+	snapshot->slot_catalog_xmin = horizons.slot_catalog_xmin;
+	snapshot->oldest_considered_running = horizons.oldest_considered_running;
+	snapshot->shared_oldest_nonremovable = horizons.shared_oldest_nonremovable;
+	snapshot->shared_oldest_nonremovable_raw = horizons.shared_oldest_nonremovable_raw;
+	snapshot->catalog_oldest_nonremovable = horizons.catalog_oldest_nonremovable;
+	snapshot->data_oldest_nonremovable = horizons.data_oldest_nonremovable;
+	snapshot->temp_oldest_nonremovable = horizons.temp_oldest_nonremovable;
+	snapshot->nbackends = 0;
+	snapshot->backends = NULL;
+
+	backends = palloc_array(XidHorizonBackend, arrayP->maxProcs);
+
+	LWLockAcquire(ProcArrayLock, LW_SHARED);
+
+	for (int index = 0; index < arrayP->numProcs; index++)
+	{
+		int			pgprocno = arrayP->pgprocnos[index];
+		PGPROC	   *proc = &allProcs[pgprocno];
+		int8		statusFlags = ProcGlobal->statusFlags[index];
+		TransactionId xid;
+		TransactionId xmin;
+
+		/*
+		 * Prepared transactions are represented by dummy PGPROCs in the
+		 * procarray, but they are reported separately with their GIDs.
+		 */
+		if (proc->pid == 0)
+			continue;
+
+		xid = UINT32_ACCESS_ONCE(other_xids[index]);
+		xmin = UINT32_ACCESS_ONCE(proc->xmin);
+		xmin = TransactionIdOlder(xmin, xid);
+
+		if (!TransactionIdIsValid(xmin))
+			continue;
+
+		if (statusFlags & (PROC_IN_VACUUM | PROC_IN_LOGICAL_DECODING))
+			continue;
+
+		backends[nbackends].pid = proc->pid;
+		backends[nbackends].databaseId = proc->databaseId;
+		backends[nbackends].xmin = xmin;
+		nbackends++;
+	}
+
+	LWLockRelease(ProcArrayLock);
+
+	snapshot->nbackends = nbackends;
+	snapshot->backends = backends;
+}
+
+/*
  * GetMaxSnapshotXidCount -- get max size for snapshot XID array
  *
  * We have to export this for use by snapmgr.c.

@@ -24,6 +24,12 @@
 typedef struct PGPROC PGPROC;
 typedef struct VirtualTransactionId VirtualTransactionId;
 
+typedef struct PreparedXactXidHolder
+{
+	TransactionId xid;
+	char		gid[GIDSIZE];
+} PreparedXactXidHolder;
+
 /*
  * GlobalTransactionData is defined in twophase.c; other places have no
  * business knowing the internal definition.
@@ -57,6 +63,7 @@ extern void RecoverPreparedTransactions(void);
 extern void CheckPointTwoPhase(XLogRecPtr redo_horizon);
 
 extern void FinishPreparedTransaction(const char *gid, bool isCommit);
+extern int	GetPreparedTransactionXidHolders(PreparedXactXidHolder **holders);
 
 extern void PrepareRedoAdd(FullTransactionId fxid, char *buf,
 						   XLogRecPtr start_lsn, XLogRecPtr end_lsn,

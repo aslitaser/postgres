@@ -14,10 +14,32 @@
 #ifndef PROCARRAY_H
 #define PROCARRAY_H
 
+#include "access/transam.h"
 #include "storage/standby.h"
 #include "utils/relcache.h"
 #include "utils/snapshot.h"
 
+typedef struct XidHorizonBackend
+{
+	int			pid;
+	Oid			databaseId;
+	TransactionId xmin;
+} XidHorizonBackend;
+
+typedef struct XidHorizonsSnapshot
+{
+	FullTransactionId latest_completed;
+	TransactionId slot_xmin;
+	TransactionId slot_catalog_xmin;
+	TransactionId oldest_considered_running;
+	TransactionId shared_oldest_nonremovable;
+	TransactionId shared_oldest_nonremovable_raw;
+	TransactionId catalog_oldest_nonremovable;
+	TransactionId data_oldest_nonremovable;
+	TransactionId temp_oldest_nonremovable;
+	int			nbackends;
+	XidHorizonBackend *backends;
+} XidHorizonsSnapshot;
 
 extern void ProcArrayAdd(PGPROC *proc);
 extern void ProcArrayRemove(PGPROC *proc, TransactionId latestXid);
@@ -56,6 +78,7 @@ extern TransactionId GetOldestActiveTransactionId(bool inCommitOnly,
 												  bool allDbs);
 extern TransactionId GetOldestSafeDecodingTransactionId(bool catalogOnly);
 extern void GetReplicationHorizons(TransactionId *xmin, TransactionId *catalog_xmin);
+extern void GetXidHorizonsSnapshot(XidHorizonsSnapshot *snapshot);
 
 extern VirtualTransactionId *GetVirtualXIDsDelayingChkpt(int *nvxids, int type);
 extern bool HaveVirtualXIDsDelayingChkpt(VirtualTransactionId *vxids,

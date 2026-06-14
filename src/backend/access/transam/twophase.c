@@ -699,6 +699,48 @@ GetPreparedTransactionList(GlobalTransaction *gxacts)
 	return num;
 }
 
+/*
+ * GetPreparedTransactionXidHolders
+ *		Return copied xid/GID data for valid prepared transactions.
+ *
+ * The returned array is palloc'd.  TwoPhaseStateLock is not held when this
+ * function returns.
+ */
+int
+GetPreparedTransactionXidHolders(PreparedXactXidHolder **holders)
+{
+	GlobalTransaction gxacts;
+	PreparedXactXidHolder *result;
+	int			ngxacts;
+	int			nresult = 0;
+
+	ngxacts = GetPreparedTransactionList(&gxacts);
+	if (ngxacts == 0)
+	{
+		*holders = NULL;
+		return 0;
+	}
+
+	result = palloc_array(PreparedXactXidHolder, ngxacts);
+
+	for (int i = 0; i < ngxacts; i++)
+	{
+		GlobalTransaction gxact = &gxacts[i];
+		PGPROC	   *proc;
+
+		if (!gxact->valid)
+			continue;
+
+		proc = GetPGProcByNumber(gxact->pgprocno);
+		result[nresult].xid = proc->xid;
+		strlcpy(result[nresult].gid, gxact->gid, GIDSIZE);
+		nresult++;
+	}
+
+	*holders = result;
+	return nresult;
+}
+
 
 /* Working status for pg_prepared_xact */
 typedef struct
