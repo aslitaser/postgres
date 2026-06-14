@@ -370,6 +370,7 @@ WaitLSN	"Waiting to read or update shared Wait-for-LSN state."
 LogicalDecodingControl	"Waiting to read or update logical decoding status information."
 DataChecksumsWorker	"Waiting for data checksums worker."
 AioWorkerControl	"Waiting to update AIO worker information."
+XidTimeMap	"Waiting to read or update the transaction ID assignment time map."
 
 #
 # END OF PREDEFINED LWLOCKS (DO NOT CHANGE THIS LINE)

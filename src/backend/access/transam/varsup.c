@@ -18,6 +18,7 @@
 #include "access/subtrans.h"
 #include "access/transam.h"
 #include "access/xact.h"
+#include "access/xidtimemap.h"
 #include "access/xlogutils.h"
 #include "miscadmin.h"
 #include "postmaster/autovacuum.h"
@@ -272,6 +273,8 @@ GetNewTransactionId(bool isSubXact)
 	}
 
 	LWLockRelease(XidGenLock);
+
+	XidTimeMapMaybeSample(full_xid);
 
 	return full_xid;
 }

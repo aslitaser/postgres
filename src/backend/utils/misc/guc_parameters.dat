@@ -3632,6 +3632,16 @@
   max => 'MAX_KILOBYTES',
 },
 
+{ name => 'xid_time_map_interval', type => 'int', context => 'PGC_SIGHUP', group => 'RESOURCES_MEM',
+  short_desc => 'Sets the minimum time between transaction ID assignment-time samples.',
+  long_desc => '0 records a sample on every eligible transaction ID assignment.',
+  flags => 'GUC_UNIT_MS',
+  variable => 'xid_time_map_interval',
+  boot_val => '1000',
+  min => '0',
+  max => 'INT_MAX',
+},
+
 { name => 'xid_time_map_samples', type => 'int', context => 'PGC_POSTMASTER', group => 'RESOURCES_MEM',
   short_desc => 'Sets the number of transaction ID assignment-time samples kept in shared memory.',
   variable => 'xid_time_map_samples',
