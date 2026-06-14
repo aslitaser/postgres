@@ -3632,6 +3632,14 @@
   max => 'MAX_KILOBYTES',
 },
 
+{ name => 'xid_time_map_samples', type => 'int', context => 'PGC_POSTMASTER', group => 'RESOURCES_MEM',
+  short_desc => 'Sets the number of transaction ID assignment-time samples kept in shared memory.',
+  variable => 'xid_time_map_samples',
+  boot_val => '8192',
+  min => '16',
+  max => '1048576',
+},
+
 { name => 'xmlbinary', type => 'enum', context => 'PGC_USERSET', group => 'CLIENT_CONN_STATEMENT',
   short_desc => 'Sets how binary values are to be encoded in XML.',
   variable => 'xmlbinary',

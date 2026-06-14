@@ -27,6 +27,7 @@ OBJS = \
 	twophase_rmgr.o \
 	varsup.o \
 	xact.o \
+	xidtimemap.o \
 	xlog.o \
 	xlogarchive.o \
 	xlogbackup.o \

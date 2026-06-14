@@ -15,6 +15,7 @@ backend_sources += files(
   'twophase_rmgr.c',
   'varsup.c',
   'xact.c',
+  'xidtimemap.c',
   'xlog.c',
   'xlogarchive.c',
   'xlogbackup.c',
