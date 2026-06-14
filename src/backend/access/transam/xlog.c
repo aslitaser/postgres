@@ -56,6 +56,7 @@
 #include "access/transam.h"
 #include "access/twophase.h"
 #include "access/xact.h"
+#include "access/xidtimemap.h"
 #include "access/xlog_internal.h"
 #include "access/xlogarchive.h"
 #include "access/xloginsert.h"
@@ -8061,6 +8062,7 @@ CheckPointGuts(XLogRecPtr checkPointRedo, int flags)
 	CheckPointCLOG();
 	CheckPointCommitTs();
 	CheckPointSUBTRANS();
+	CheckPointXidTimeMap();
 	CheckPointMultiXact();
 	CheckPointPredicate();
 	CheckPointBuffers(flags);

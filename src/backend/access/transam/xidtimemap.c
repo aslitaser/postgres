@@ -11,8 +11,12 @@
  */
 #include "postgres.h"
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #include "access/xact.h"
 #include "access/xidtimemap.h"
+#include "storage/fd.h"
 #include "storage/lwlock.h"
 #include "storage/shmem.h"
 #include "storage/subsystems.h"
@@ -21,6 +25,11 @@
 
 int			xid_time_map_samples = 8192;
 int			xid_time_map_interval = 1000;
+
+#define XID_TIME_MAP_FILE		"pg_xid_time_map"
+#define XID_TIME_MAP_TMP_FILE	"pg_xid_time_map.tmp"
+#define XID_TIME_MAP_MAGIC		0x5849544D	/* "XITM" */
+#define XID_TIME_MAP_VERSION	1
 
 typedef struct XidTimeMapCtl
 {
@@ -31,10 +40,22 @@ typedef struct XidTimeMapCtl
 	XidTimeSample samples[FLEXIBLE_ARRAY_MEMBER];
 } XidTimeMapCtl;
 
+typedef struct XidTimeMapFileHeader
+{
+	uint32		magic;
+	uint32		version;
+	int32		capacity;
+	int32		head;
+	int32		count;
+	TimestampTz last_sample_ts;
+} XidTimeMapFileHeader;
+
 static XidTimeMapCtl *XidTimeMap = NULL;
 
 static void XidTimeMapShmemRequest(void *arg);
 static void XidTimeMapShmemInitCallback(void *arg);
+static void XidTimeMapInitEmpty(const char *reason);
+static void XidTimeMapLoad(void);
 static bool XidTimeMapFindTimeBracket(TimestampTz target,
 									  XidTimeSample *lower,
 									  XidTimeSample *upper);
@@ -47,8 +68,11 @@ static FullTransactionId XidTimeMapInterpolateXid(XidTimeSample lower,
 static TimestampTz XidTimeMapInterpolateTimestamp(XidTimeSample lower,
 												  XidTimeSample upper,
 												  FullTransactionId target);
+static bool XidTimeMapReadExact(int fd, void *buffer, Size size);
 static bool XidTimeMapSampleDue(TimestampTz last_sample_ts,
 								TimestampTz now);
+static bool XidTimeMapWriteExact(int fd, const void *buffer, Size size,
+								 const char *path);
 
 const ShmemCallbacks XidTimeMapShmemCallbacks = {
 	.request_fn = XidTimeMapShmemRequest,
@@ -73,13 +97,7 @@ XidTimeMapShmemInit(void)
 {
 	Assert(XidTimeMap != NULL);
 
-	XidTimeMap->capacity = xid_time_map_samples;
-	XidTimeMap->head = 0;
-	XidTimeMap->count = 0;
-	XidTimeMap->last_sample_ts = 0;
-
-	elog(LOG, "xid time map initialized with %d sample slots",
-		 XidTimeMap->capacity);
+	XidTimeMapLoad();
 }
 
 Datum
@@ -158,6 +176,184 @@ XidTimeMapMaybeSample(FullTransactionId xid)
 
 	elog(LOG, "xid time map sampled xid " UINT64_FORMAT " count %d head %d",
 		 U64FromFullTransactionId(xid), count, next_head);
+}
+
+void
+CheckPointXidTimeMap(void)
+{
+	char	   *buffer;
+	XidTimeMapFileHeader *header;
+	XidTimeSample *samples;
+	Size		samples_size;
+	Size		file_size;
+	int			fd;
+
+	Assert(XidTimeMap != NULL);
+
+	samples_size = mul_size((Size) XidTimeMap->capacity,
+							sizeof(XidTimeSample));
+	file_size = add_size(sizeof(XidTimeMapFileHeader), samples_size);
+	buffer = palloc(file_size);
+	header = (XidTimeMapFileHeader *) buffer;
+	samples = (XidTimeSample *) (buffer + sizeof(XidTimeMapFileHeader));
+
+	LWLockAcquire(XidTimeMapLock, LW_SHARED);
+
+	header->magic = XID_TIME_MAP_MAGIC;
+	header->version = XID_TIME_MAP_VERSION;
+	header->capacity = XidTimeMap->capacity;
+	header->head = XidTimeMap->head;
+	header->count = XidTimeMap->count;
+	header->last_sample_ts = XidTimeMap->last_sample_ts;
+	memcpy(samples, XidTimeMap->samples, samples_size);
+
+	LWLockRelease(XidTimeMapLock);
+
+	fd = OpenTransientFile(XID_TIME_MAP_TMP_FILE,
+						   O_CREAT | O_TRUNC | O_WRONLY | PG_BINARY);
+	if (fd < 0)
+	{
+		ereport(LOG,
+				(errcode_for_file_access(),
+				 errmsg("could not create file \"%s\": %m",
+						XID_TIME_MAP_TMP_FILE)));
+		pfree(buffer);
+		return;
+	}
+
+	if (!XidTimeMapWriteExact(fd, buffer, file_size,
+							  XID_TIME_MAP_TMP_FILE))
+	{
+		CloseTransientFile(fd);
+		unlink(XID_TIME_MAP_TMP_FILE);
+		pfree(buffer);
+		return;
+	}
+
+	if (pg_fsync(fd) != 0)
+	{
+		int			save_errno = errno;
+
+		CloseTransientFile(fd);
+		unlink(XID_TIME_MAP_TMP_FILE);
+		pfree(buffer);
+		errno = save_errno;
+		ereport(LOG,
+				(errcode_for_file_access(),
+				 errmsg("could not fsync file \"%s\": %m",
+						XID_TIME_MAP_TMP_FILE)));
+		return;
+	}
+
+	if (CloseTransientFile(fd) != 0)
+	{
+		int			save_errno = errno;
+
+		unlink(XID_TIME_MAP_TMP_FILE);
+		pfree(buffer);
+		errno = save_errno;
+		ereport(LOG,
+				(errcode_for_file_access(),
+				 errmsg("could not close file \"%s\": %m",
+						XID_TIME_MAP_TMP_FILE)));
+		return;
+	}
+
+	if (durable_rename(XID_TIME_MAP_TMP_FILE, XID_TIME_MAP_FILE, LOG) < 0)
+	{
+		unlink(XID_TIME_MAP_TMP_FILE);
+		pfree(buffer);
+		return;
+	}
+
+	pfree(buffer);
+}
+
+static void
+XidTimeMapInitEmpty(const char *reason)
+{
+	XidTimeMap->capacity = xid_time_map_samples;
+	XidTimeMap->head = 0;
+	XidTimeMap->count = 0;
+	XidTimeMap->last_sample_ts = 0;
+	MemSet(XidTimeMap->samples, 0,
+		   (Size) XidTimeMap->capacity * sizeof(XidTimeSample));
+
+	if (reason)
+		elog(LOG, "xid time map started empty with %d sample slots: %s",
+			 XidTimeMap->capacity, reason);
+}
+
+static void
+XidTimeMapLoad(void)
+{
+	XidTimeMapFileHeader header;
+	XidTimeSample *samples;
+	Size		samples_size;
+	int			fd;
+
+	XidTimeMapInitEmpty(NULL);
+
+	fd = OpenTransientFile(XID_TIME_MAP_FILE, O_RDONLY | PG_BINARY);
+	if (fd < 0)
+	{
+		if (errno == ENOENT)
+			XidTimeMapInitEmpty("state file not found");
+		else
+			XidTimeMapInitEmpty("could not open state file");
+		return;
+	}
+
+	if (!XidTimeMapReadExact(fd, &header, sizeof(XidTimeMapFileHeader)))
+	{
+		CloseTransientFile(fd);
+		XidTimeMapInitEmpty("state file is too short");
+		return;
+	}
+
+	if (header.magic != XID_TIME_MAP_MAGIC ||
+		header.version != XID_TIME_MAP_VERSION)
+	{
+		CloseTransientFile(fd);
+		XidTimeMapInitEmpty("state file has invalid magic or version");
+		return;
+	}
+
+	if (header.capacity != xid_time_map_samples ||
+		header.head < 0 || header.head >= header.capacity ||
+		header.count < 0 || header.count > header.capacity)
+	{
+		CloseTransientFile(fd);
+		XidTimeMapInitEmpty("state file does not match current configuration");
+		return;
+	}
+
+	samples_size = mul_size((Size) header.capacity, sizeof(XidTimeSample));
+	samples = palloc(samples_size);
+	if (!XidTimeMapReadExact(fd, samples, samples_size))
+	{
+		CloseTransientFile(fd);
+		pfree(samples);
+		XidTimeMapInitEmpty("state file is too short");
+		return;
+	}
+
+	if (CloseTransientFile(fd) != 0)
+	{
+		pfree(samples);
+		XidTimeMapInitEmpty("could not close state file");
+		return;
+	}
+
+	XidTimeMap->capacity = header.capacity;
+	XidTimeMap->head = header.head;
+	XidTimeMap->count = header.count;
+	XidTimeMap->last_sample_ts = header.last_sample_ts;
+	memcpy(XidTimeMap->samples, samples, samples_size);
+	pfree(samples);
+
+	elog(LOG, "xid time map restored %d samples from \"%s\"",
+		 XidTimeMap->count, XID_TIME_MAP_FILE);
 }
 
 static bool
@@ -315,6 +511,33 @@ XidTimeMapInterpolateXid(XidTimeSample lower, XidTimeSample upper,
 	return FullTransactionIdFromU64(result);
 }
 
+static bool
+XidTimeMapReadExact(int fd, void *buffer, Size size)
+{
+	char	   *ptr = buffer;
+	Size		remaining = size;
+
+	while (remaining > 0)
+	{
+		ssize_t		written;
+
+		written = read(fd, ptr, remaining);
+		if (written < 0)
+		{
+			if (errno == EINTR)
+				continue;
+			return false;
+		}
+		if (written == 0)
+			return false;
+
+		ptr += written;
+		remaining -= written;
+	}
+
+	return true;
+}
+
 static TimestampTz
 XidTimeMapInterpolateTimestamp(XidTimeSample lower, XidTimeSample upper,
 							   FullTransactionId target)
@@ -354,6 +577,44 @@ XidTimeMapSampleDue(TimestampTz last_sample_ts, TimestampTz now)
 
 	return TimestampDifferenceExceeds(last_sample_ts, now,
 									  xid_time_map_interval);
+}
+
+static bool
+XidTimeMapWriteExact(int fd, const void *buffer, Size size, const char *path)
+{
+	const char *ptr = buffer;
+	Size		remaining = size;
+
+	while (remaining > 0)
+	{
+		ssize_t		written;
+
+		errno = 0;
+		written = write(fd, ptr, remaining);
+		if (written < 0)
+		{
+			if (errno == EINTR)
+				continue;
+
+			ereport(LOG,
+					(errcode_for_file_access(),
+					 errmsg("could not write to file \"%s\": %m", path)));
+			return false;
+		}
+		if (written == 0)
+		{
+			errno = ENOSPC;
+			ereport(LOG,
+					(errcode_for_file_access(),
+					 errmsg("could not write to file \"%s\": %m", path)));
+			return false;
+		}
+
+		ptr += written;
+		remaining -= written;
+	}
+
+	return true;
 }
 
 static void
